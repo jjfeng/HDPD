@@ -1,0 +1,294 @@
+"""
+Script to generate plots for case studies on ZSFG Figure 5a and 
+ACS Public Coverage Figure 5b of the manuscript
+To plot ACS Public Coverage Figure 7 with all features,
+rerun this script with 'keep_feats_plot': '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30'
+in the setting for acs_pubcov
+"""
+import os
+
+from os.path import join
+from nestly.scons import SConsWrap
+from nestly import Nest
+from SCons.Script import Environment, Command, AddOption
+import numpy as np
+import pandas as pd
+
+Import('env')
+localenv = env.Clone()
+
+# Set up state
+nest = SConsWrap(Nest(), localenv['output'], alias_environment=localenv)
+
+NUM_JOBS = 1
+NUM_BINS = [20,]  # zero or negative value means no binning
+
+CI_LEVEL = 0.9
+
+SIMULATION_SETTINGS = {
+    'acs_pubcov_w': {
+        'train_data_file': '../data/acs_pubcov_source_train.csv',
+        'source_file': '../data/acs_pubcov_source_val.csv',
+        'target_file': '../data/acs_pubcov_target.csv',
+        'feature_file': '../data/acs_pubcov_w_feature_names.csv',
+        'w_indices': '0,1,13,14,15,16,17,18',
+        'clip': '--do-clipping',
+        'weight': '',
+        'gamma': 1,
+        'keep_feats_plot': '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28',
+        'mdls': [
+            # 'RandomForestClassifier',
+            # 'GradientBoostingClassifier',
+            'MLPClassifier',
+            # 'LogisticRegressionLasso',
+        ],
+    },
+    'acs_pubcov_no_w': {
+        'train_data_file': '../data/acs_pubcov_source_train.csv',
+        'source_file': '../data/acs_pubcov_source_val.csv',
+        'target_file': '../data/acs_pubcov_target.csv',
+        'feature_file': '../data/acs_pubcov_no_w_feature_names.csv',
+        'w_indices': '',
+        'clip': '--do-clipping',
+        'weight': '',
+        'gamma': 1,
+        'keep_feats_plot': '0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33',
+        'mdls': [
+            # 'RandomForestClassifier',
+            # 'GradientBoostingClassifier',
+            'MLPClassifier',
+            # 'LogisticRegressionLasso',
+        ],
+    },
+    'acs_pubcov': {
+        'train_data_file': '../data/acs_pubcov_source_train.csv',
+        'source_file': '../data/acs_pubcov_source_val.csv',
+        'target_file': '../data/acs_pubcov_target.csv',
+        'feature_file': '../data/acs_pubcov_feature_names.csv',
+        'w_indices': '0,1,18',
+        'clip': '--do-clipping',
+        'weight': '',
+        'gamma': 1,
+        'keep_feats_plot': '0,1,2,3,4,5,6,7,27,28,29,30',
+        'mdls': [
+            # 'RandomForestClassifier',
+            # 'GradientBoostingClassifier',
+            'MLPClassifier',
+            # 'LogisticRegressionLasso',
+        ],
+    },
+    'acs_income': {
+        'train_data_file': '../../data/acs_income_source_train.csv',
+        'source_file': '../../data/acs_income_source_val.csv',
+        'target_file': '../../data/acs_income_target.csv',
+        'feature_file': '../../data/acs_feature_names.csv',
+        'w_indices': '0,1,8,9,10,11,12,13,14,15,16',
+        'clip': '',
+        'weight': '',
+        'gamma': 1,
+    },
+    'readmission_zsfg': {
+        'train_data_file': '../data/readmission_zsfg_source_train.csv',
+        'source_file': '../data/readmission_zsfg_source_val.csv',
+        'target_file': '../data/readmission_zsfg_target.csv',
+        'feature_file': '../data/readmission_zsfg_features.csv',
+        'w_indices': '0,1,2,3',
+        'clip': '',
+        'gamma': 1,
+        'weight': '--do-class-weight',
+        'keep_feats_plot': '0,1,2,3,4,5,6,7,8,9',
+        'mdls': [
+            # 'RandomForestClassifier',
+            'GradientBoostingClassifier',
+            # 'MLPClassifier',
+            # 'LogisticRegressionLasso',
+        ],
+    },
+}
+
+nest.add(
+    'simulation',
+    [
+        'acs_pubcov',
+        # 'acs_pubcov_no_w',
+        'readmission_zsfg',
+    ]
+)
+
+nest.add(
+    'mdl',
+    lambda c: SIMULATION_SETTINGS[c['simulation']]['mdls']
+)
+
+@nest.add_target_with_env(localenv)
+def train_ml(env, outdir, c):
+    targets = [
+        join(outdir, 'mdl.pkl'),
+        join(outdir, 'log_ml.txt'),
+    ]
+    orig_cmd = [
+        'train_ml.py',
+        '--seed-offset',
+        0,
+        SIMULATION_SETTINGS[c['simulation']]['weight'],
+        '--param-dict',
+        'casestudy/model_dict.json',
+        '--model',
+        c['mdl'],
+        '--data',
+        SIMULATION_SETTINGS[c['simulation']]['train_data_file'],
+        '--mdl ${TARGETS[0]}',
+        '--log ${TARGETS[1]}',
+    ]
+    cmd = ['python'] + orig_cmd
+    return env.Command(
+        targets,
+        [], #SIMULATION_SETTINGS[c['simulation']]['train_data_file'],
+        ' '.join(map(str, cmd)))
+
+nest.add(
+    'loss',
+    [
+        'accuracy'
+    ]
+)
+
+nest.add(
+    'decomposition',
+    lambda c: ['Cond_Cov'] if c['simulation'] == 'readmission_zsfg' else ['Cond_Outcome']
+)
+
+nest.add(
+    'numbins',
+    NUM_BINS
+)
+
+nest.add_aggregate('method_res_estimate', list)
+
+@nest.add_target_with_env(localenv)
+def get_estimate(env, outdir, c):
+    targets = [
+        join(outdir, 'estimateJOB.txt'),
+        join(outdir, 'resultestimateJOB.csv'),
+        join(outdir, 'explainerJOB.pkl'),
+    ]
+    orig_cmd = [
+        'get_shapley_estimate.py',
+        '--do-aggregate',
+        '--gamma %.2f' % SIMULATION_SETTINGS[c['simulation']]['gamma'] if 'gamma' in SIMULATION_SETTINGS[c['simulation']] else '',
+        '--seed-offset',
+        0,
+        '--loss',
+        c['loss'],
+        '--decomposition',
+        c['decomposition'],
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--combos %s' % SIMULATION_SETTINGS[c['simulation']]['combos'] if 'combos' in SIMULATION_SETTINGS[c['simulation']] else '',
+        '--source-data-template',
+        SIMULATION_SETTINGS[c['simulation']]['source_file'],
+        '--target-data-template',
+        SIMULATION_SETTINGS[c['simulation']]['target_file'],
+        '--mdl-file ${SOURCES[0]}',
+        '--do-grid-search',
+        SIMULATION_SETTINGS[c['simulation']]['clip'],
+        '--ci-level',
+        CI_LEVEL,
+        '--num-bins',
+        c['numbins'],
+        '--log ${TARGETS[0]}',
+        '--result-file ${TARGETS[1]}',
+        '--explainer-out-file ${TARGETS[2]}',
+    ]
+    cmd = [
+        'python run_script.py',
+        '--cluster',
+        localenv['cluster'],
+        '--target-template-file',
+        '${TARGETS[0]},${TARGETS[1]},${TARGETS[2]}',
+        '--num-jobs',
+        NUM_JOBS,
+        '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    c['method_res_estimate'].append(targets[1])
+    return env.Command(
+        targets,
+        [
+            # SIMULATION_SETTINGS[c['simulation']]['source_file'],
+            # SIMULATION_SETTINGS[c['simulation']]['target_file'],
+            c['train_ml'][0],
+        ],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def get_comparator(env, outdir, c):
+    targets = [
+        join(outdir, 'comp_estimateJOB.txt'),
+        join(outdir, 'comp_resultestimateJOB.csv'),
+    ]
+    orig_cmd = [
+        'get_comparators.py',
+        '--seed-offset',
+        0,
+        '--decomposition',
+        c['decomposition'],
+        '--loss',
+        c['loss'],
+        '--source-data-template',
+        SIMULATION_SETTINGS[c['simulation']]['source_file'],
+        '--target-data-template',
+        SIMULATION_SETTINGS[c['simulation']]['target_file'],
+        '--do-grid',
+        '--gamma',
+        SIMULATION_SETTINGS[c['simulation']]['gamma'],
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--mdl ${SOURCES[0]}',
+        '--log ${TARGETS[0]}',
+        '--result-file ${TARGETS[1]}',
+    ]
+    cmd = [
+        'python run_script.py',
+        '--is-short',
+        '--cluster',
+        localenv['cluster'],
+        '--target-template-file',
+        '${TARGETS[0]},${TARGETS[1]}',
+        '--num-jobs',
+        1,
+        '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    return env.Command(
+        targets,
+        [   
+            c['train_ml'][0],
+        ],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def plot_estimates(env, outdir, c):
+    targets = [
+        join(outdir, 'casestudy_agg_JOB.png'),
+        join(outdir, 'casestudy_detail_JOB.png'),
+    ]
+    cmd = [
+        'python plot_importance_casestudy.py',
+        '--plot-component agg,explained_ratio,WuShiftExplain,MeanChange,RandomForestAccExplanation',
+        '--feature',
+        SIMULATION_SETTINGS[c['simulation']]['feature_file'],
+        '--w-ind',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--keep-feats-plot',
+        SIMULATION_SETTINGS[c['simulation']]['keep_feats_plot'],
+        '--comparator ${SOURCES[1]}',
+        '--plot-agg-file ${TARGETS[0]}',
+        '--plot-detail-file ${TARGETS[1]}',
+        '--summary ${SOURCES[0]}',
+    ]
+    return env.Command(
+        targets,
+        [
+            c['get_estimate'][1],
+            c['get_comparator'][1],
+        ],
+        ' '.join(map(str, cmd)))

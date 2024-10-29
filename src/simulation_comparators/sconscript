@@ -1,0 +1,439 @@
+"""
+Script for simulations to compare methods in Section 5.2 
+Figures 4a and 4b of the manuscript
+"""
+import os
+
+from os.path import join
+from nestly.scons import SConsWrap
+from nestly import Nest
+from SCons.Script import Environment, Command, AddOption
+import numpy as np
+import pandas as pd
+
+Import('env')
+localenv = env.Clone()
+
+# Set up state
+nest = SConsWrap(Nest(), localenv['output'], alias_environment=localenv)
+
+DO_GRID_SEARCH = "" #--do-grid-search"
+NUM_JOBS = 1
+NUM_OBS = [20000]
+NUM_BINS = 20
+NUM_WEIGHTS_COMBINED_COMPARATOR = 20
+
+CI_LEVEL = 0.9
+SIMULATION_SETTINGS = {
+    'dim3_lr': {
+        'source_beta': '0.8,0.6,2',
+        'target_beta': '0.8,0.6,2',
+        'feature_names': 'simulation_comparators/feature_names_dim3.csv',
+        'x_source_mean': '1,0,1',
+        'x_source_scale': 1,
+        'x_target_mean': '1,1,1',
+        'x_target_scale': 1,
+        'x_dist': 'seq_norm',
+        'w_indices': '0',
+        'gamma': 10,
+        'nonlinear': False,
+        'decomposition': 'Cond_Cov',
+        'mdl_type': 'LogisticRegression',
+        'num_obs': 10000,
+    },
+    'dim5_unif': {
+        'source_beta': '0.2,0.4,2,0.25,0.1,0.1',
+        'target_beta': '0.2,-0.4,0.8,0.1,0.1,.1',
+        'feature_names': 'simulation_comparators/feature_names_dim4.csv',
+        'x_source_mean': '0,0,0,0,0,0',
+        'x_source_scale': 1,
+        'x_target_mean': '0,0,0,0,0,0',
+        'x_target_scale': 1,
+        'x_dist': 'unif',
+        'w_indices': '0',
+        'gamma': 10,
+        'nonlinear': False,
+        'decomposition': 'Cond_Outcome',
+        'mdl_type': 'LogisticRegression',
+        'num_obs': 10000,
+    },
+    'dim8_unif': {
+        'source_beta': '0.5,0.5,1,0.3,0.3',
+        'target_beta': '0.5,0.3,1,1.3,-0.1',
+        'feature_names': 'simulation_comparators/feature_names_dim8.csv',
+        'x_source_mean': '0,0,0,0,0',
+        'x_source_scale': 1,
+        'x_target_mean': '0,0,0,0,0',
+        'x_target_scale': 1,
+        'x_dist': 'unif',
+        'w_indices': '0',
+        'gamma': 1,
+        'nonlinear': True,
+        'decomposition': 'Cond_Outcome',
+        'mdl_type': 'RandomForestClassifier',
+        'num_obs': 10000,
+    },
+}
+
+nest.add(
+    'simulation',
+    [
+        # 'dim3_lr',
+        'dim8_unif',
+    ]
+)
+
+@nest.add_target_with_env(localenv)
+def make_source_train_data(env, outdir, c):
+    targets = [
+        join(outdir, 'source_train_dataJOB.csv'),
+        join(outdir, 'source_train_logJOB.txt'),
+    ]
+
+    orig_cmd = [
+        'generate_data.py',
+        '--x-dist',
+        SIMULATION_SETTINGS[c['simulation']]['x_dist'],
+        '--x-scale',
+        SIMULATION_SETTINGS[c['simulation']]['x_source_scale'],
+        '--num-obs',
+        SIMULATION_SETTINGS[c['simulation']]['num_obs'],
+        '--seed-offset',
+        0,
+        '--x-mean',
+        SIMULATION_SETTINGS[c['simulation']]['x_source_mean'],
+        '--beta',
+        SIMULATION_SETTINGS[c['simulation']]['source_beta'],
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--nonlinear' if SIMULATION_SETTINGS[c['simulation']]['nonlinear'] else '',
+        '--out-file ${TARGETS[0]}',
+        '--log ${TARGETS[1]}',
+    ]
+    cmd = [
+        'python run_script.py',
+        '--is-short',
+        '--cluster',
+        localenv['cluster'],
+        '--target-template-file',
+        '${TARGETS[0]},${TARGETS[1]}',
+        '--num-jobs',
+        1,
+        '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def train_ml(env, outdir, c):
+    targets = [
+        join(outdir, 'mdl.pkl'),
+        join(outdir, 'log_ml.txt'),
+    ]
+    orig_cmd = [
+        'train_ml.py',
+        '--seed-offset',
+        0,
+        '--model',
+        SIMULATION_SETTINGS[c['simulation']]['mdl_type'],
+        '--param',
+        'simulation_comparators/model_dict.json',
+        '--data ${SOURCES[0]}',
+        '--mdl ${TARGETS[0]}',
+        '--log ${TARGETS[1]}',
+    ]
+    cmd = ['python'] + orig_cmd
+    return env.Command(
+        targets,
+        c['make_source_train_data'],
+        ' '.join(map(str, cmd)))
+
+nest.add_aggregate('source_data', dict)
+nest.add_aggregate('target_data', dict)
+nest.add_aggregate('source_data_gen', list)
+nest.add_aggregate('target_data_gen', list)
+nest.add(
+    'numobs',
+    NUM_OBS
+)
+@nest.add_target_with_env(localenv)
+def make_source_data(env, outdir, c):
+    targets = [
+        join(outdir, 'source_dataJOB.csv'),
+        join(outdir, 'sourceJOB.pkl'),
+        join(outdir, 'log_source_dataJOB.txt'),
+    ]
+    c['source_data_gen'].append(targets[1])
+    c['source_data'][c['numobs']] = targets[0]
+
+    orig_cmd = [
+        'generate_data.py',
+        '--x-dist',
+        SIMULATION_SETTINGS[c['simulation']]['x_dist'],
+        '--x-scale',
+        SIMULATION_SETTINGS[c['simulation']]['x_source_scale'],
+        '--seed-offset',
+        1,
+        '--num-obs',
+        c['numobs'],
+        '--x-mean',
+        SIMULATION_SETTINGS[c['simulation']]['x_source_mean'],
+        '--beta',
+        SIMULATION_SETTINGS[c['simulation']]['source_beta'],
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--nonlinear' if SIMULATION_SETTINGS[c['simulation']]['nonlinear'] else '',
+        '--out-file ${TARGETS[0]}',
+        '--out-data-gen ${TARGETS[1]}',
+        '--log ${TARGETS[2]}',
+    ]
+    cmd = [
+        'python run_script.py',
+        '--is-short',
+        '--cluster',
+        localenv['cluster'],
+        '--target-template-file',
+        '${TARGETS[0]},${TARGETS[1]},${TARGETS[2]}',
+        '--num-jobs',
+        NUM_JOBS,
+        '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def make_target_data(env, outdir, c):
+    targets = [
+        join(outdir, 'target_dataJOB.csv'),
+        join(outdir, 'targetJOB.pkl'),
+        join(outdir, 'log_target_dataJOB.txt'),
+    ]
+    c['target_data_gen'].append(targets[1])
+    c['target_data'][c['numobs']] = targets[0]
+
+    orig_cmd = [
+        'generate_data.py',
+        '--seed-offset',
+        2,
+        '--x-dist',
+        SIMULATION_SETTINGS[c['simulation']]['x_dist'],
+        '--x-scale',
+        SIMULATION_SETTINGS[c['simulation']]['x_target_scale'],
+        '--num-obs',
+        c['numobs'],
+        '--x-mean',
+        SIMULATION_SETTINGS[c['simulation']]['x_target_mean'],
+        '--beta',
+        SIMULATION_SETTINGS[c['simulation']]['target_beta'],
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--nonlinear' if SIMULATION_SETTINGS[c['simulation']]['nonlinear'] else '',
+        '--out-file ${TARGETS[0]}',
+        '--out-data-gen ${TARGETS[1]}',
+        '--log ${TARGETS[2]}',
+    ]
+    cmd = [
+        'python run_script.py',
+        '--is-short',
+        '--cluster',
+        localenv['cluster'],
+        '--target-template-file',
+        '${TARGETS[0]},${TARGETS[1]},${TARGETS[2]}',
+        '--num-jobs',
+        NUM_JOBS,
+        '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    return env.Command(
+        targets,
+        [],
+        ' '.join(map(str, cmd)))
+
+nest.pop('numobs')
+
+nest.add(
+    'loss',
+    [
+        'accuracy',
+    ]
+)
+
+nest.add(
+    'numobs',
+    NUM_OBS
+)
+
+nest.add_aggregate('method_res_our', list)
+nest.add_aggregate('method_res_comparators', list)
+
+@nest.add_target_with_env(localenv)
+def get_comparator(env, outdir, c):
+    targets = [
+        join(outdir, 'comp_estimateJOB.txt'),
+        join(outdir, 'comp_resultestimateJOB.csv'),
+    ]
+    orig_cmd = [
+        'get_comparators.py',
+        '--seed-offset',
+        0,
+        '--decomposition',
+        SIMULATION_SETTINGS[c['simulation']]['decomposition'],
+        '--loss',
+        c['loss'],
+        '--source-data-template ${SOURCES[0]}',
+        '--target-data-template ${SOURCES[1]}',
+        '--source-data-generator ${SOURCES[2]}',
+        '--target-data-generator ${SOURCES[3]}',
+        DO_GRID_SEARCH,
+        '--gamma %.3f' % SIMULATION_SETTINGS[c['simulation']]['gamma'] if 'gamma' in SIMULATION_SETTINGS[c['simulation']] else '',
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--mdl ${SOURCES[4]}',
+        '--log ${TARGETS[0]}',
+        '--result-file ${TARGETS[1]}',
+    ]
+    cmd = [
+        'python run_script.py',
+        '--is-short',
+        '--cluster',
+        localenv['cluster'],
+        '--target-template-file',
+        '${TARGETS[0]},${TARGETS[1]}',
+        '--num-jobs',
+        1,
+        '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    c['method_res_comparators'].append(targets[1])
+    return env.Command(
+        targets,
+        [
+            c['source_data'][c['numobs']],
+            c['target_data'][c['numobs']],
+            c['source_data_gen'][0],
+            c['target_data_gen'][0],
+            c['train_ml'][0],
+        ],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def get_estimate(env, outdir, c):
+    targets = [
+        join(outdir, "estimateJOB.txt"),
+        join(outdir, "resultestimateJOB.csv"),
+    ]
+    orig_cmd = [
+        'get_shapley_estimate.py',
+        '--seed-offset',
+        123,
+        '--loss',
+        c['loss'],
+        '--decomposition',
+        SIMULATION_SETTINGS[c['simulation']]['decomposition'],
+        '--w-indices',
+        SIMULATION_SETTINGS[c['simulation']]['w_indices'],
+        '--gamma %.3f' % SIMULATION_SETTINGS[c['simulation']]['gamma'] if 'gamma' in SIMULATION_SETTINGS[c['simulation']] else '',
+        DO_GRID_SEARCH,
+        # '--gridsearch-poly',
+        '--reps-ustatistics',
+        1, # dont need to sample many ustats because this experiment should have plugin close to one-step
+        # '--is-oracle',
+        '--ci-level',
+        CI_LEVEL,
+        '--source ${SOURCES[0]}',
+        '--target ${SOURCES[1]}',
+        '--mdl ${SOURCES[2]}',
+        '--num-bins',
+        NUM_BINS,
+        '--log ${TARGETS[0]}',
+        '--result-file ${TARGETS[1]}',
+    ]
+    cmd = [
+       'python run_script.py',
+       '--cluster',
+       localenv['cluster'],
+       '--target-template-file',
+       '${TARGETS[0]},${TARGETS[1]}',
+       '--num-jobs',
+       1,
+       '--run-line="%s"' % ' '.join(map(str, orig_cmd)),
+    ]
+    c['method_res_our'].append(targets[1])
+    return env.Command(
+        targets,
+        [
+            c['source_data'][c['numobs']],
+            c['target_data'][c['numobs']],
+            c['train_ml'][0],
+        ],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def plot_importance(env, outdir, c):
+    method_res_our = ','.join([join('simulation_comparators', a) for a in c['method_res_our']])
+    method_res_comparators = ','.join([join('simulation_comparators', a) for a in c['method_res_comparators']])
+    targets = [
+        join(outdir, 'plot_explainJOB.png'),
+        join(outdir, 'result_explainJOB.csv'),
+    ]
+    cmd = [
+        'python plot_simulation_comparators.py',
+        '--plot-file ${TARGETS[0]}',
+        '--result ${TARGETS[1]}',
+        '--decomposition',
+        SIMULATION_SETTINGS[c['simulation']]['decomposition'],
+        '--feature-names-file',
+        SIMULATION_SETTINGS[c['simulation']]['feature_names'],
+        '--summary-files-our',
+        method_res_our,
+        '--feature-names-file',
+        SIMULATION_SETTINGS[c['simulation']]['feature_names'],
+        '--summary-files-comparators',
+        method_res_comparators,
+        '--source-data-generator ${SOURCES[0]}',
+    ]
+    return env.Command(
+        targets,
+        [
+            c['source_data_gen'][0],
+            c['method_res_our'],
+            c['method_res_comparators'],
+        ],
+        ' '.join(map(str, cmd)))
+
+@nest.add_target_with_env(localenv)
+def eval_model_fixes(env, outdir, c):
+    targets = [
+        join(outdir, 'log_eval_explanation_JOB.txt'),
+    ]
+    cmd = [
+        'python eval_model_fixes.py',
+        '--source-data-generator ${SOURCES[0]}',
+        '--target-data-generator ${SOURCES[1]}',
+        '--decomposition',
+        SIMULATION_SETTINGS[c['simulation']]['decomposition'],
+        '--decomp-file ${SOURCES[3]}',
+        '--comparator ${SOURCES[2]}',
+        '--mdl ${SOURCES[4]}',
+        '--max-train',
+        SIMULATION_SETTINGS[c['simulation']]['num_obs'],
+        '--num-obs',
+        NUM_OBS[0],
+        '--num-top',
+        "1,2,3" if SIMULATION_SETTINGS[c['simulation']]['decomposition'] == "Cond_Outcome" else "1",
+        '--num-weights-combined-comparator',
+        NUM_WEIGHTS_COMBINED_COMPARATOR,
+        '--result-file ${TARGETS[0]}'
+    ]
+    return env.Command(
+        targets,
+        [
+            c['source_data_gen'][0],
+            c['target_data_gen'][0],
+            c['get_comparator'][1],
+            c['get_estimate'][1],
+            c['train_ml'][0],
+        ],
+        ' '.join(map(str, cmd)))

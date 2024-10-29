@@ -1,0 +1,10 @@
+{
+    "RandomForestClassifier": {
+        "max_features": [5],
+        "max_depth": [4],
+        "n_estimators": [100]
+    },
+    "LogisticRegression": {
+        "penalty": ["none"]
+    }
+}

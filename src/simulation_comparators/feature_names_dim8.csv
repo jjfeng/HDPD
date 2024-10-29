@@ -1,0 +1,8 @@
+vars,vars_name,y_axis_name
+W,W,Aggregate Variable
+X,Z,Aggregate Variable
+Y,Y,Aggregate Variable
+Z1,Z1,Variable Shapley
+Z2,Z2,Variable Shapley
+Z3,Z3,Variable Shapley
+Z4,Z4,Variable Shapley
