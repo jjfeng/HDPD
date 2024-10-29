@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-GPLv3-blue.svg">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg">
   <img src="https://img.shields.io/badge/python-3.11+-blue">  
 </p> 
 
