@@ -51,13 +51,11 @@ Please post in Issues here or email us if you have any questions:
 ### Citation
 
 ```r
-@misc{feng2024hierarchicaldecompositionexplainingml,
-      title={A hierarchical decomposition for explaining ML performance discrepancies}, 
-      author={Jean Feng and Harvineet Singh and Fan Xia and Adarsh Subbaswamy and Alexej Gossmann},
-      year={2024},
-      eprint={2402.14254},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2402.14254}, 
+@inproceedings{singh2024a,
+title={A hierarchical decomposition for explaining {ML} performance discrepancies},
+author={Harvineet Singh and Fan Xia and Adarsh Subbaswamy and Alexej Gossmann and Jean Feng},
+booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
+year={2024},
+url={https://openreview.net/forum?id=nXXwYsARXB}
 }
 ```
